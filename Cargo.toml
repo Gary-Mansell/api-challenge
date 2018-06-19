@@ -4,3 +4,6 @@ version = "0.1.0"
 authors = ["Gary Mansell <gary.mansell@cyberlytic.com>"]
 
 [dependencies]
+rocket = "0.3.10"
+bson = "0.10.0"
+mongodb = "0.3.7"
