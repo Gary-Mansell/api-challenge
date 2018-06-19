@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
+    "net/http"
+    "github.com/globalsign/mgo/bson"
 
 	"github.com/globalsign/mgo"
 	"github.com/gorilla/mux"
 )
 
 type person struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+    Name  string `json:"name"`
+    Age  uint8 `json:"age"`
+    Email string `json:"email"`
+    Balance float64 `json:"balance"`
 }
 
 type personHandler struct {
@@ -27,8 +30,22 @@ func newHandler(db *mgo.Database) *personHandler {
 }
 
 func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
+    vars := mux.Vars(request)
+    id := vars["person_id"]
+
+    // TODO Type check/conversion for id
+
+    person := new(person)
+    handler.db.C("people").Find(bson.M{"_id":id}).One(&person)
+
+    if person != nil {
+        log.Printf("Found person!")
+    } else {
+        log.Printf("Failed to find person!")
+    }
+
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Hello!")
+	fmt.Fprintf(responseWriter, "Recieved id %v!", id)
 }
 
 func (handler *personHandler) post(responseWriter http.ResponseWriter, request *http.Request) {
@@ -44,10 +61,17 @@ func (handler *personHandler) post(responseWriter http.ResponseWriter, request *
 		log.Printf("Error parsing request body: %v", err)
 		http.Error(responseWriter, "Unable to parse request body!", http.StatusBadRequest)
 		return
-	}
+    }
+
+    handler.db.C("people").Insert(person)
 
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Hi {}", person.Name)
+	fmt.Fprintf(responseWriter, "Hi %v", person.Name)
+}
+
+func (handler *personHandler) delete(responseWriter http.ResponseWriter, request *http.Request) {
+	responseWriter.WriteHeader(http.StatusOK)
+	fmt.Fprintf(responseWriter, "Deleted!")
 }
 
 func defaultHandler(responseWriter http.ResponseWriter, request *http.Request) {
@@ -75,14 +99,15 @@ func main() {
 	}
 	db := session.DB(dbName)
 
-	personHandler := newHandler(db)
+    personHandler := newHandler(db)
+    // defer personHandler.db.Close()
 
 	router := mux.NewRouter().StrictSlash(true)
 	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
 	router.HandleFunc("/", defaultHandler).Methods("GET")
-	router.HandleFunc("/", personHandler.get).Methods("GET")
-	router.HandleFunc("/", personHandler.post).Methods("POST")
+	router.HandleFunc("/{person_id}", personHandler.get).Methods("GET")
+	router.HandleFunc("/{person_id}", personHandler.post).Methods("POST")
 
 	address := fmt.Sprintf(":%v", port)
 	log.Printf("Listening... %v", address)
