@@ -5,18 +5,25 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-    "net/http"
-    "github.com/globalsign/mgo/bson"
+	"net/http"
+
+	"github.com/globalsign/mgo/bson"
+
+	"math/rand"
 
 	"github.com/globalsign/mgo"
 	"github.com/gorilla/mux"
 )
 
+var peopleColl = "people"
+
 type person struct {
-    Name  string `json:"name"`
-    Age  uint8 `json:"age"`
-    Email string `json:"email"`
-    Balance float64 `json:"balance"`
+	ID      uint64  `json:"id" bson:"id"`
+	Name    string  `json:"name" bson:"fullname"`
+	Age     uint8   `json:"age"`
+	Email   string  `json:"email"`
+	Address string  `json:"address"`
+	Balance float64 `json:"balance"`
 }
 
 type personHandler struct {
@@ -27,25 +34,6 @@ func newHandler(db *mgo.Database) *personHandler {
 	return &personHandler{
 		db: db,
 	}
-}
-
-func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
-    vars := mux.Vars(request)
-    id := vars["person_id"]
-
-    // TODO Type check/conversion for id
-
-    person := new(person)
-    handler.db.C("people").Find(bson.M{"_id":id}).One(&person)
-
-    if person != nil {
-        log.Printf("Found person!")
-    } else {
-        log.Printf("Failed to find person!")
-    }
-
-	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Recieved id %v!", id)
 }
 
 func (handler *personHandler) post(responseWriter http.ResponseWriter, request *http.Request) {
@@ -61,17 +49,46 @@ func (handler *personHandler) post(responseWriter http.ResponseWriter, request *
 		log.Printf("Error parsing request body: %v", err)
 		http.Error(responseWriter, "Unable to parse request body!", http.StatusBadRequest)
 		return
-    }
+	}
 
-    handler.db.C("people").Insert(person)
+	// Assign random id after marshalling (ignore client id)
+	person.ID = rand.Uint64() // TODO ensure unique
+
+	handler.db.C(peopleColl).Insert(person)
+	log.Printf("Created: %v", person)
 
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Hi %v", person.Name)
+	fmt.Fprintf(responseWriter, "%v", person.ID)
+}
+
+func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
+	vars := mux.Vars(request)
+	id := vars["person_id"]
+
+	// TODO Type check/conversion for id
+
+	person := new(person)
+	handler.db.C(peopleColl).Find(bson.M{"id": id}).One(&person)
+
+	if person != nil {
+		log.Printf("Found person!")
+	} else {
+		log.Printf("Failed to find person!")
+	}
+	log.Printf("Found: %v", person.ID)
+
+	responseWriter.WriteHeader(http.StatusOK)
+	fmt.Fprintf(responseWriter, "Found %v!", person.ID)
 }
 
 func (handler *personHandler) delete(responseWriter http.ResponseWriter, request *http.Request) {
+	vars := mux.Vars(request)
+	id := vars["person_id"]
+
+	count := handler.db.C(peopleColl).Remove(bson.M{"id": id})
+
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Deleted!")
+	fmt.Fprintf(responseWriter, "Deleted %v records!", count)
 }
 
 func defaultHandler(responseWriter http.ResponseWriter, request *http.Request) {
@@ -90,7 +107,7 @@ func main() {
 	port := "8081"
 	dbHost := "localhost"
 	dbPort := "27017"
-	dbName := "Flexera"
+	dbName := "App_DB"
 
 	log.Printf("Connecting to db...")
 	session, err := mgo.Dial(fmt.Sprintf("%v:%v", dbHost, dbPort))
@@ -99,15 +116,20 @@ func main() {
 	}
 	db := session.DB(dbName)
 
-    personHandler := newHandler(db)
-    // defer personHandler.db.Close()
+	// TODO remove this test!
+	if err := db.C("test").Insert(bson.M{"a": 1}); err != nil {
+		log.Fatalf("Test failed! %v", err)
+	}
+
+	personHandler := newHandler(db)
 
 	router := mux.NewRouter().StrictSlash(true)
 	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
 	router.HandleFunc("/", defaultHandler).Methods("GET")
+	router.HandleFunc("/", personHandler.post).Methods("POST")
 	router.HandleFunc("/{person_id}", personHandler.get).Methods("GET")
-	router.HandleFunc("/{person_id}", personHandler.post).Methods("POST")
+	router.HandleFunc("/{person_id}", personHandler.delete).Methods("DELETE")
 
 	address := fmt.Sprintf(":%v", port)
 	log.Printf("Listening... %v", address)
