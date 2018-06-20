@@ -18,8 +18,8 @@ import (
 var peopleColl = "people"
 
 type person struct {
-	ID      uint64  `json:"id" bson:"id"`
-	Name    string  `json:"name" bson:"fullname"`
+	ID      uint64  `json:"id" bson:"_id"` // TODO proper bson.ObjectId
+	Name    string  `json:"name"`
 	Age     uint8   `json:"age"`
 	Email   string  `json:"email"`
 	Address string  `json:"address"`
@@ -61,6 +61,30 @@ func (handler *personHandler) post(responseWriter http.ResponseWriter, request *
 	fmt.Fprintf(responseWriter, "%v", person.ID)
 }
 
+func (handler *personHandler) list(responseWriter http.ResponseWriter, request *http.Request) {
+	queryResult := []person{}
+	handler.db.C(peopleColl).Find(bson.M{}).All(&queryResult)
+
+	if len(queryResult) == 0 {
+		log.Printf("No users found!")
+		responseWriter.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(responseWriter, "Not found!")
+		return
+	}
+
+	log.Printf("Found %v users!", len(queryResult))
+	responseWriter.WriteHeader(http.StatusOK)
+	responseJSON, err := json.Marshal(queryResult)
+	if err != nil {
+		handleJSONMarshallingError(responseWriter, err)
+	} else {
+		// Send json
+		responseWriter.WriteHeader(http.StatusFound)
+		responseWriter.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		fmt.Fprintf(responseWriter, "%v", responseJSON)
+	}
+}
+
 func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
 	id := vars["person_id"]
@@ -68,7 +92,7 @@ func (handler *personHandler) get(responseWriter http.ResponseWriter, request *h
 	// TODO Type check/conversion for id
 
 	person := new(person)
-	handler.db.C(peopleColl).Find(bson.M{"id": id}).One(&person)
+	handler.db.C(peopleColl).FindId(bson.M{"_id": id}).One(&person)
 
 	if person != nil {
 		log.Printf("Found person!")
@@ -85,7 +109,18 @@ func (handler *personHandler) delete(responseWriter http.ResponseWriter, request
 	vars := mux.Vars(request)
 	id := vars["person_id"]
 
-	count := handler.db.C(peopleColl).Remove(bson.M{"id": id})
+	log.Printf("Removing users with id: %v", id)
+	handler.db.C(peopleColl).Remove(bson.M{"_id": id})
+	log.Printf("Removed all users!")
+
+	responseWriter.WriteHeader(http.StatusOK)
+	fmt.Fprintf(responseWriter, "Deleted all records!")
+}
+
+func (handler *personHandler) deleteAll(responseWriter http.ResponseWriter, request *http.Request) {
+	log.Printf("Removing all users!")
+	count := handler.db.C(peopleColl).Remove(bson.M{})
+	log.Printf("Removed %v users!", count)
 
 	responseWriter.WriteHeader(http.StatusOK)
 	fmt.Fprintf(responseWriter, "Deleted %v records!", count)
@@ -101,6 +136,14 @@ func notFoundHandler(responseWriter http.ResponseWriter, request *http.Request) 
 	log.Printf("Not found! %v", request.URL)
 	responseWriter.WriteHeader(http.StatusNotFound)
 	fmt.Fprintf(responseWriter, "Not Found!")
+}
+
+func handleJSONMarshallingError(responseWriter http.ResponseWriter, err error) {
+	handleError(responseWriter, err, http.StatusInternalServerError)
+}
+
+func handleError(responseWriter http.ResponseWriter, err error, responseCode int) {
+	http.Error(responseWriter, err.Error(), responseCode)
 }
 
 func main() {
@@ -127,9 +170,11 @@ func main() {
 	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
 	router.HandleFunc("/", defaultHandler).Methods("GET")
-	router.HandleFunc("/", personHandler.post).Methods("POST")
-	router.HandleFunc("/{person_id}", personHandler.get).Methods("GET")
-	router.HandleFunc("/{person_id}", personHandler.delete).Methods("DELETE")
+	router.HandleFunc("/people", personHandler.post).Methods("POST")
+	router.HandleFunc("/people", personHandler.list).Methods("GET")
+	router.HandleFunc("/people/{person_id}", personHandler.get).Methods("GET")
+	router.HandleFunc("/people", personHandler.deleteAll).Methods("DELETE")
+	router.HandleFunc("/people/{person_id}", personHandler.delete).Methods("DELETE")
 
 	address := fmt.Sprintf(":%v", port)
 	log.Printf("Listening... %v", address)
