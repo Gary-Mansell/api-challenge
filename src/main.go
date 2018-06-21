@@ -9,8 +9,6 @@ import (
 
 	"github.com/globalsign/mgo/bson"
 
-	"math/rand"
-
 	"github.com/globalsign/mgo"
 	"github.com/gorilla/mux"
 )
@@ -18,12 +16,12 @@ import (
 var peopleColl = "people"
 
 type person struct {
-	ID      uint64  `json:"id" bson:"_id"` // TODO proper bson.ObjectId
-	Name    string  `json:"name"`
-	Age     uint8   `json:"age"`
-	Email   string  `json:"email"`
-	Address string  `json:"address"`
-	Balance float64 `json:"balance"`
+	ID      bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	Name    string        `json:"name"`
+	Age     uint8         `json:"age"`
+	Email   string        `json:"email"`
+	Address string        `json:"address"`
+	Balance float64       `json:"balance"`
 }
 
 type personHandler struct {
@@ -51,79 +49,63 @@ func (handler *personHandler) post(responseWriter http.ResponseWriter, request *
 		return
 	}
 
-	// Assign random id after marshalling (ignore client id)
-	person.ID = rand.Uint64() // TODO ensure unique
-
 	handler.db.C(peopleColl).Insert(person)
 	log.Printf("Created: %v", person)
 
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "%v", person.ID)
+	fmt.Fprintf(responseWriter, "%v", person.ID.Hex())
 }
 
 func (handler *personHandler) list(responseWriter http.ResponseWriter, request *http.Request) {
-	queryResult := []person{}
-	handler.db.C(peopleColl).Find(bson.M{}).All(&queryResult)
+	people := []person{}
+	handler.db.C(peopleColl).Find(bson.M{}).All(&people)
 
-	if len(queryResult) == 0 {
+	if len(people) == 0 {
 		log.Printf("No users found!")
 		responseWriter.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(responseWriter, "Not found!")
 		return
 	}
 
-	log.Printf("Found %v users!", len(queryResult))
-	responseWriter.WriteHeader(http.StatusOK)
-	responseJSON, err := json.Marshal(queryResult)
-	if err != nil {
-		handleJSONMarshallingError(responseWriter, err)
-	} else {
-		// Send json
-		responseWriter.WriteHeader(http.StatusFound)
-		responseWriter.Header().Set("Content-Type", "application/json; charset=UTF-8")
-		fmt.Fprintf(responseWriter, "%v", responseJSON)
-	}
+	log.Printf("Found %v users!", len(people))
+	responseWriter.WriteHeader(http.StatusFound)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(people)
 }
 
 func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
-	id := vars["person_id"]
-
-	// TODO Type check/conversion for id
+	id := bson.ObjectId(vars["person_id"])
 
 	person := new(person)
-	handler.db.C(peopleColl).FindId(bson.M{"_id": id}).One(&person)
+	log.Printf("Searching for user %v...", id.Hex())
+	handler.db.C(peopleColl).Find(bson.M{"_id": id}).One(&person)
+	log.Printf("Found: %v", id.Hex())
 
-	if person != nil {
-		log.Printf("Found person!")
-	} else {
-		log.Printf("Failed to find person!")
-	}
-	log.Printf("Found: %v", person.ID)
-
-	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Found %v!", person.ID)
+	responseWriter.WriteHeader(http.StatusFound)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(person)
 }
 
 func (handler *personHandler) delete(responseWriter http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
-	id := vars["person_id"]
+	id := bson.ObjectId(vars["person_id"])
 
-	log.Printf("Removing users with id: %v", id)
+	log.Printf("Removing user(s) with id: %v...", id.Hex())
 	handler.db.C(peopleColl).Remove(bson.M{"_id": id})
-	log.Printf("Removed all users!")
+	log.Printf("Removed!")
 
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Deleted all records!")
+	fmt.Fprintf(responseWriter, "Success!")
 }
 
 func (handler *personHandler) deleteAll(responseWriter http.ResponseWriter, request *http.Request) {
-	log.Printf("Removing all users!")
-	count := handler.db.C(peopleColl).Remove(bson.M{})
-	log.Printf("Removed %v users!", count)
+	log.Printf("Removing all users...")
+	handler.db.C(peopleColl).Remove(bson.M{})
+	log.Printf("Removed all users!")
 
 	responseWriter.WriteHeader(http.StatusOK)
-	fmt.Fprintf(responseWriter, "Deleted %v records!", count)
+	fmt.Fprintf(responseWriter, "Success!")
 }
 
 func defaultHandler(responseWriter http.ResponseWriter, request *http.Request) {
@@ -157,6 +139,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to connect to db! %v", err)
 	}
+	defer session.Close()
 	db := session.DB(dbName)
 
 	// TODO remove this test!
