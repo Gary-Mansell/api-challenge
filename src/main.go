@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/globalsign/mgo/bson"
 
@@ -128,11 +129,26 @@ func handleError(responseWriter http.ResponseWriter, err error, responseCode int
 	http.Error(responseWriter, err.Error(), responseCode)
 }
 
+func getEnvVar(key, defaultVal string) (value string) {
+	value = os.Getenv(key)
+	if len(value) != 0 {
+		log.Printf("Found env variable! [%v = '%v']", key, value)
+		return value
+	}
+
+	if len(defaultVal) != 0 {
+		log.Printf("Defaulted env variable! [%v = '%v']", key, defaultVal)
+		return defaultVal
+	}
+
+	panic(fmt.Sprintf("Missing env variable! [%v]", key))
+}
+
 func main() {
-	port := "8081"
-	dbHost := "localhost"
-	dbPort := "27017"
-	dbName := "App_DB"
+	port := getEnvVar("APP_PORT", "8081")
+	dbHost := getEnvVar("APP_MONGO_HOST", "localhost")
+	dbPort := getEnvVar("APP_MONGO_PORT", "27017")
+	dbName := getEnvVar("APP_MONGO_DB", "App_DB")
 
 	log.Printf("Connecting to db...")
 	session, err := mgo.Dial(fmt.Sprintf("%v:%v", dbHost, dbPort))
