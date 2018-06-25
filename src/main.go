@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -36,19 +35,8 @@ func newHandler(db *mgo.Database) *personHandler {
 }
 
 func (handler *personHandler) post(responseWriter http.ResponseWriter, request *http.Request) {
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		log.Printf("Error reading request body: %v", err)
-		http.Error(responseWriter, "Unable to read request body!", http.StatusBadRequest)
-		return
-	}
-
 	person := new(person)
-	if err := json.Unmarshal(body, &person); err != nil {
-		log.Printf("Error parsing request body: %v", err)
-		http.Error(responseWriter, "Unable to parse request body!", http.StatusBadRequest)
-		return
-	}
+	json.NewDecoder(request.Body).Decode(&person)
 
 	person.ID = bson.NewObjectId()
 	handler.db.C(peopleColl).Insert(person)
