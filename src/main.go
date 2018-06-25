@@ -50,6 +50,7 @@ func (handler *personHandler) post(responseWriter http.ResponseWriter, request *
 		return
 	}
 
+	person.ID = bson.NewObjectId()
 	handler.db.C(peopleColl).Insert(person)
 	log.Printf("Created: %v", person)
 
@@ -64,33 +65,39 @@ func (handler *personHandler) list(responseWriter http.ResponseWriter, request *
 	if len(people) == 0 {
 		log.Printf("No users found!")
 		responseWriter.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(responseWriter, "Not found!")
-		return
+	} else {
+		log.Printf("Found %v users!", len(people))
+		responseWriter.WriteHeader(http.StatusFound)
 	}
 
-	log.Printf("Found %v users!", len(people))
-	responseWriter.WriteHeader(http.StatusFound)
 	responseWriter.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(responseWriter).Encode(people)
 }
 
 func (handler *personHandler) get(responseWriter http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
-	id := bson.ObjectId(vars["person_id"])
+	id := bson.ObjectIdHex(vars["person_id"])
 
 	person := new(person)
 	log.Printf("Searching for user %v...", id.Hex())
-	handler.db.C(peopleColl).Find(bson.M{"_id": id}).One(&person)
-	log.Printf("Found: %v", id.Hex())
 
-	responseWriter.WriteHeader(http.StatusFound)
+	count, _ := handler.db.C(peopleColl).Find(bson.M{"_id": id}).Count()
+	if count < 1 {
+		log.Printf("Not Found: %v", id.Hex())
+		responseWriter.WriteHeader(http.StatusNotFound)
+	} else {
+		log.Printf("Found: %v", id.Hex())
+		responseWriter.WriteHeader(http.StatusFound)
+		handler.db.C(peopleColl).Find(bson.M{"_id": id}).One(&person)
+	}
+
 	responseWriter.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(responseWriter).Encode(person)
 }
 
 func (handler *personHandler) delete(responseWriter http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
-	id := bson.ObjectId(vars["person_id"])
+	id := bson.ObjectIdHex(vars["person_id"])
 
 	log.Printf("Removing user(s) with id: %v...", id.Hex())
 	handler.db.C(peopleColl).Remove(bson.M{"_id": id})
@@ -102,7 +109,7 @@ func (handler *personHandler) delete(responseWriter http.ResponseWriter, request
 
 func (handler *personHandler) deleteAll(responseWriter http.ResponseWriter, request *http.Request) {
 	log.Printf("Removing all users...")
-	handler.db.C(peopleColl).Remove(bson.M{})
+	handler.db.C(peopleColl).RemoveAll(bson.M{})
 	log.Printf("Removed all users!")
 
 	responseWriter.WriteHeader(http.StatusOK)
