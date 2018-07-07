@@ -147,10 +147,24 @@ fn post_person(
 }
 
 #[delete("/<id>")]
-fn delete_person(id: String) -> Result<&'static str, ApiError> {
+fn delete_person(
+    db_client: State<Arc<Mutex<mongodb::Client>>>,
+    id: String,
+) -> Result<&'static str, ApiError> {
+    let db_client = db_client.inner().lock().unwrap();
+    let people_coll = db_client.db(DB_NAME).collection("people");
     let id: ObjectId = ObjectId::with_string(&id)?;
     println!("Deleting: {}...", id);
-    Ok("Success!")
+
+    people_coll
+        .delete_many(
+            doc!{
+            "_id": id
+            },
+            None,
+        )
+        .map_err(|err| ApiError::new(err.description()))
+        .and_then(|_r| Ok("Success!"))
 }
 
 #[error(404)]
