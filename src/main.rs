@@ -82,6 +82,28 @@ fn default() -> &'static str {
     "Ready!"
 }
 
+#[get("/")]
+fn list_people(db_client: State<Arc<Mutex<mongodb::Client>>>) -> Result<String, ApiError> {
+    let db_client = db_client.inner().lock().unwrap();
+    let people_coll = db_client.db(DB_NAME).collection("people");
+
+    people_coll
+        .find(None, None)
+        .map_err(|err| ApiError::new(err.description()))
+        .and_then(|mut cursor| match cursor.has_next() {
+            Ok(true) => {
+                println!("Found users!");
+                let items: Vec<_> = cursor.map(|item| item.unwrap()).collect();
+                Ok(format!("{:?}", items))
+            }
+            Ok(false) => {
+                println!("No users found!");
+                Ok("No users found!".to_string())
+            }
+            Err(err) => Err(ApiError::new(err.description())),
+        })
+}
+
 #[get("/<id>")]
 fn get_person(
     db_client: State<Arc<Mutex<mongodb::Client>>>,
@@ -93,24 +115,20 @@ fn get_person(
     println!("Retrieving: {}...", id);
 
     people_coll
-        .count(
+        .find_one(
             Some(doc!{
             "_id": id
             }),
             None,
         )
         .map_err(|err| ApiError::new(err.description()))
-        .and_then(|count| {
-            println!("Found {} records...", count);
-            Ok(format!("{}", count))
+        .and_then(|result| match result {
+            Some(person) => {
+                println!("Found: {:?}", person);
+                Ok(format!("{:?}", person))
+            }
+            None => Err(ApiError::new("Not found!")),
         })
-
-    // .expect("Failed to execute find!")
-    // match item {
-    //     Some(Ok(doc)) => println!("Found something..."),
-    //     // Some(Err(_)) => panic!("Failed to get next from server!"),
-    //     None => panic!("Server returned no results!"),
-    // }
 }
 
 #[post("/", format = "application/json", data = "<person>")]
@@ -175,8 +193,7 @@ fn not_found(request: &Request) -> &'static str {
 
 fn main() {
     println!("Connecting to db...");
-    let db_client = Client::connect(DB_HOST, DB_PORT).expect("Failed to connect to db!");
-    let db_client = Arc::new(Mutex::new(db_client));
+    let db_client = Client::connect(DB_HOST, DB_PORT).unwrap();
 
     let config = Config::build(Environment::Staging)
         .address("[::1]")
@@ -187,8 +204,11 @@ fn main() {
     println!("Listening on port {}...", PORT);
     rocket::custom(config, false)
         .mount("/", routes![default])
-        .mount("/people", routes![get_person, post_person, delete_person])
+        .mount(
+            "/people",
+            routes![list_people, get_person, post_person, delete_person],
+        )
         .catch(errors![not_found])
-        .manage(db_client)
+        .manage(Arc::new(Mutex::new(db_client)))
         .launch();
 }
