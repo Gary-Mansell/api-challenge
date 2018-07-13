@@ -13,6 +13,11 @@ The libraries must be installed via:
 
 _Alternatively build the dockerfile in the repo and run as a container if you don't want to run on host._
 
+### Rust
+With Rust toolchain installed:
+`cargo run`
+
+
 ## Making api requests
 Creation:
 ```
@@ -27,7 +32,7 @@ curl -X POST \
 	"balance": 1.1
 }'
 ```
-This requests returns a pseudo-randomly generated id for the user - note this is not _guaranteed_ to be unique but should be close enough :)
+This requests returns the randomly generated user id for the user which can be used in subsequent requests.
 
 Retrieve all users:
 ```
@@ -40,7 +45,7 @@ Retrieve specific user:
 curl -X GET \
   http://localhost:8081/people/<user_id>
 ```
-_where <user_id> is the id returned by posting a user e.g. `curl http://localhost:8081/5577006791947779410`_
+_where <user_id> is the generated user id e.g. `curl http://localhost:8081/5577006791947779410`_
 
 
 Delete specific user:
@@ -48,6 +53,7 @@ Delete specific user:
 curl -X DELETE \
   http://localhost:8081/people/<user_id>
 ```
+_where <user_id> is the generated user id._
 
 Delete all users:
 ```
