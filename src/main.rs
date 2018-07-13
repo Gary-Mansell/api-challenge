@@ -185,6 +185,17 @@ fn delete_person(
         .and_then(|_r| Ok("Success!"))
 }
 
+#[delete("/")]
+fn delete_all(db_client: State<Arc<Mutex<mongodb::Client>>>) -> Result<&'static str, ApiError> {
+    let db_client = db_client.inner().lock().unwrap();
+    let people_coll = db_client.db(DB_NAME).collection("people");
+
+    people_coll
+        .delete_many(doc!{}, None)
+        .map_err(|err| ApiError::new(err.description()))
+        .and_then(|_r| Ok("Success!"))
+}
+
 #[error(404)]
 fn not_found(request: &Request) -> &'static str {
     println!("Not found! {}", request.uri());
@@ -206,7 +217,13 @@ fn main() {
         .mount("/", routes![default])
         .mount(
             "/people",
-            routes![list_people, get_person, post_person, delete_person],
+            routes![
+                list_people,
+                get_person,
+                post_person,
+                delete_person,
+                delete_all
+            ],
         )
         .catch(errors![not_found])
         .manage(Arc::new(Mutex::new(db_client)))
